@@ -324,3 +324,16 @@
 "Automatically restore previous enabled plugins when App Store updates are detected." = "Automatically restore previous enabled plugins when App Store updates are detected.";
 "Restoring %d/%d: %@" = "Restoring %1$d/%2$d: %3$@";
 "Restore Completed" = "Restore Completed";
+"Settings" = "Settings";
+"Global Settings" = "Global Settings";
+"Auto Reinject Settings" = "Auto Reinject Settings";
+"Enable Update Detection" = "Enable Update Detection";
+"Updated Apps Needing Restore" = "Updated Apps Needing Restore";
+"Restore Status" = "Restore Status";
+"Re-scan Applications" = "Re-scan Applications";
+"Check for Updates" = "Check for Updates";
+"Manage Plug-Ins" = "Manage Plug-Ins";
+"Restore Plug-Ins" = "Restore Plug-Ins";
+"About & Updates" = "About & Updates";
+"This app was updated. Tap to restore previously enabled plugins." = "This app was updated. Tap to restore previously enabled plugins.";
+"Restore Previous State" = "Restore Previous State";

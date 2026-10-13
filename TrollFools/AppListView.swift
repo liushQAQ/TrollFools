@@ -20,6 +20,7 @@ struct AppListView: View {
     @EnvironmentObject var appList: AppListModel
     @Environment(\.verticalSizeClass) var verticalSizeClass
 
+    @State var isGlobalSettingsPresented = false
     @State var selectorOpenedURL: URLIdentifiable? = nil
     @State var selectedIndex: String? = nil
 
@@ -103,6 +104,10 @@ struct AppListView: View {
             .sheet(item: $selectorOpenedURL) { urlWrapper in
                 AppListView()
                     .environmentObject(AppListModel(selectorURL: urlWrapper.url))
+            }
+            .sheet(isPresented: $isGlobalSettingsPresented) {
+                GlobalSettingsView()
+                    .environmentObject(appList)
             }
             .onOpenURL { url in
                 let ext = url.pathExtension.lowercased()
@@ -262,6 +267,16 @@ struct AppListView: View {
         )
         .navigationBarTitleDisplayMode((AppListModel.isLegacyDevice || appList.isSelectorMode) ? .inline : .automatic)
         .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                if !appList.isSelectorMode {
+                    Button {
+                        isGlobalSettingsPresented = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel(NSLocalizedString("Settings", comment: ""))
+                }
+            }
             ToolbarItem(placement: .principal) {
                 if appList.isSelectorMode, let selectorURL = appList.selectorURL {
                     VStack {
@@ -429,6 +444,22 @@ struct AppListView: View {
                             .padding(.vertical, 4)
                     }
                 }
+                .contextMenu {
+                    NavigationLink {
+                        EjectListView(app)
+                    } label: {
+                        Label(NSLocalizedString("Manage Plug-Ins", comment: ""), systemImage: "folder.badge.gear")
+                    }
+
+                    if reinjectManager.appsNeedingRestore.contains(where: { $0.bid == app.bid }) {
+                        Button {
+                            reinjectManager.restoreApp(app)
+                            appList.reload()
+                        } label: {
+                            Label(NSLocalizedString("Restore Plug-Ins", comment: ""), systemImage: "arrow.clockwise")
+                        }
+                    }
+                }
             }
         } header: {
             if sectionKey == "_" {
@@ -563,4 +594,87 @@ struct AppListView: View {
 struct URLIdentifiable: Identifiable {
     let url: URL
     var id: String { url.absoluteString }
+}
+
+struct GlobalSettingsView: View {
+    @Environment(\.presentationMode) var presentationMode
+    @ObservedObject var reinjectManager = ReinjectManager.shared
+    @EnvironmentObject var appList: AppListModel
+
+    @AppStorage("AutoRestoreInjectedOnLaunch") var autoRestoreOnLaunch: Bool = false
+    @AppStorage("EnableAppUpdateDetection") var enableAppUpdateDetection: Bool = true
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section {
+                    Toggle(NSLocalizedString("Auto Restore on Launch", comment: ""), isOn: $autoRestoreOnLaunch)
+                    Toggle(NSLocalizedString("Enable Update Detection", comment: ""), isOn: $enableAppUpdateDetection)
+                } header: {
+                    Text(NSLocalizedString("Auto Reinject Settings", comment: ""))
+                } footer: {
+                    Text(NSLocalizedString("Automatically restore previous enabled plugins when App Store updates are detected.", comment: ""))
+                }
+
+                Section {
+                    HStack {
+                        Text(NSLocalizedString("Updated Apps Needing Restore", comment: ""))
+                        Spacer()
+                        Text("\(reinjectManager.appsNeedingRestore.count)")
+                            .foregroundColor(.secondary)
+                    }
+
+                    if !reinjectManager.appsNeedingRestore.isEmpty {
+                        Button {
+                            reinjectManager.restoreAll {
+                                appList.reload()
+                            }
+                        } label: {
+                            HStack {
+                                Text(NSLocalizedString("Restore All", comment: ""))
+                                Spacer()
+                                if reinjectManager.isRestoring {
+                                    ProgressView()
+                                }
+                            }
+                        }
+                        .disabled(reinjectManager.isRestoring)
+                    }
+
+                    Button {
+                        appList.reload()
+                    } label: {
+                        Text(NSLocalizedString("Re-scan Applications", comment: ""))
+                    }
+                } header: {
+                    Text(NSLocalizedString("Restore Status", comment: ""))
+                }
+
+                Section {
+                    Button {
+                        CheckUpdateManager.shared.checkUpdateIfNeeded { latestVersion, _ in
+                            if let latestVersion {
+                                CheckUpdateManager.shared.executeUpgrade()
+                            }
+                        }
+                    } label: {
+                        Text(NSLocalizedString("Check for Updates", comment: ""))
+                    }
+                } header: {
+                    Text(NSLocalizedString("About & Updates", comment: ""))
+                } footer: {
+                    Text("TrollFools Enhanced Edition (Auto-Reinject)")
+                }
+            }
+            .navigationTitle(NSLocalizedString("Settings", comment: ""))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(NSLocalizedString("Done", comment: "")) {
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                }
+            }
+        }
+    }
 }

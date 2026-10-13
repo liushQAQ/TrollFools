@@ -12,6 +12,8 @@ struct OptionView: View {
 
     @Environment(\.verticalSizeClass) var verticalSizeClass
 
+    @ObservedObject var reinjectManager = ReinjectManager.shared
+
     @State var isImporterPresented = false
     @State var isImporterSelected = false
 
@@ -72,7 +74,40 @@ struct OptionView: View {
     }
 
     var content: some View {
-        VStack(spacing: 80) {
+        VStack(spacing: 50) {
+            if reinjectManager.appsNeedingRestore.contains(where: { $0.bid == app.bid }) {
+                VStack(spacing: 8) {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text(NSLocalizedString("This app was updated. Tap to restore previously enabled plugins.", comment: ""))
+                            .font(.footnote)
+                            .foregroundColor(.primary)
+                        Spacer()
+                    }
+
+                    Button {
+                        reinjectManager.restoreApp(app)
+                        recalculatePlugInCount()
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text(NSLocalizedString("Restore Previous State", comment: ""))
+                                .font(.footnote)
+                                .fontWeight(.bold)
+                            Spacer()
+                        }
+                        .padding(.vertical, 8)
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                    }
+                }
+                .padding(12)
+                .background(Color(.secondarySystemBackground))
+                .cornerRadius(12)
+            }
+
             HStack {
                 Spacer()
 

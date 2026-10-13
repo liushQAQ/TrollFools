@@ -324,3 +324,16 @@
 "Automatically restore previous enabled plugins when App Store updates are detected." = "检测到 App Store 覆盖更新后，自动按上次记录的开启/停用状态恢复注入插件。";
 "Restoring %d/%d: %@" = "正在恢复 %1$d/%2$d：%3$@";
 "Restore Completed" = "恢复完成";
+"Settings" = "设置";
+"Global Settings" = "全局设置";
+"Auto Reinject Settings" = "自动恢复设置";
+"Enable Update Detection" = "启用更新检测";
+"Updated Apps Needing Restore" = "待恢复的应用数量";
+"Restore Status" = "恢复状态";
+"Re-scan Applications" = "重新扫描应用";
+"Check for Updates" = "检查更新";
+"Manage Plug-Ins" = "管理插件";
+"Restore Plug-Ins" = "恢复插件";
+"About & Updates" = "关于与更新";
+"This app was updated. Tap to restore previously enabled plugins." = "该应用已由 App Store 更新，插件已失效。";
+"Restore Previous State" = "恢复上次状态";
