@@ -267,23 +267,23 @@ extension AppListModel {
 
 // MARK: - Reinject Manager (State-Preserving Auto-Restore)
 
-public struct SavedPluginState: Codable, Equatable {
-    public let fileName: String
-    public var isEnabled: Bool
+struct SavedPluginState: Codable, Equatable {
+    let fileName: String
+    var isEnabled: Bool
 
-    public init(fileName: String, isEnabled: Bool) {
+    init(fileName: String, isEnabled: Bool) {
         self.fileName = fileName
         self.isEnabled = isEnabled
     }
 }
 
-public struct SavedAppState: Codable {
-    public let bid: String
-    public var appVersion: String
-    public var plugins: [SavedPluginState]
-    public var lastUpdated: Date
+struct SavedAppState: Codable {
+    let bid: String
+    var appVersion: String
+    var plugins: [SavedPluginState]
+    var lastUpdated: Date
 
-    public init(bid: String, appVersion: String, plugins: [SavedPluginState], lastUpdated: Date = Date()) {
+    init(bid: String, appVersion: String, plugins: [SavedPluginState], lastUpdated: Date = Date()) {
         self.bid = bid
         self.appVersion = appVersion
         self.plugins = plugins
@@ -291,18 +291,18 @@ public struct SavedAppState: Codable {
     }
 }
 
-public final class ReinjectManager: ObservableObject {
-    public static let shared = ReinjectManager()
+final class ReinjectManager: ObservableObject {
+    static let shared = ReinjectManager()
 
-    public static let registryDirectoryURL: URL = {
+    static let registryDirectoryURL: URL = {
         let url = URL(fileURLWithPath: "/var/mobile/Library/TrollFools/StateRegistry", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }()
 
-    @Published public var appsNeedingRestore: [App] = []
-    @Published public var isRestoring: Bool = false
-    @Published public var statusMessage: String = ""
+    @Published var appsNeedingRestore: [App] = []
+    @Published var isRestoring: Bool = false
+    @Published var statusMessage: String = ""
 
     private let fileManager = FileManager.default
 
@@ -312,18 +312,18 @@ public final class ReinjectManager: ObservableObject {
         Self.registryDirectoryURL.appendingPathComponent("\(bid).json")
     }
 
-    public func loadState(for bid: String) -> SavedAppState? {
+    func loadState(for bid: String) -> SavedAppState? {
         let url = registryFileURL(for: bid)
         guard fileManager.fileExists(atPath: url.path),
               let data = try? Data(contentsOf: url),
-              let state = try? JSONDecoder().decode(SavedAppState.self, data: data) else {
+              let state = try? JSONDecoder().decode(SavedAppState.self, from: data) else {
             return nil
         }
         return state
     }
 
     /// 拍摄快照：在任何注入/开关/移除操作后调用，记录哪些插件开启，哪些插件关闭
-    public func snapshot(_ app: App) {
+    func snapshot(_ app: App) {
         let bid = app.bid
         let appVersion = app.version ?? ""
 
@@ -359,7 +359,7 @@ public final class ReinjectManager: ObservableObject {
     }
 
     /// 检测是否有被 App Store 覆盖导致插件丢失的 App
-    public func checkApps(appList: [App]) {
+    func checkApps(appList: [App]) {
         let isDetectionEnabled = UserDefaults.standard.object(forKey: "EnableAppUpdateDetection") as? Bool ?? true
         guard isDetectionEnabled else {
             DispatchQueue.main.async { self.appsNeedingRestore = [] }
@@ -399,7 +399,7 @@ public final class ReinjectManager: ObservableObject {
     }
 
     /// 一键恢复所有受影响的应用（严格保持开启/关闭状态）
-    public func restoreAll(completion: (() -> Void)? = nil) {
+    func restoreAll(completion: (() -> Void)? = nil) {
         guard !appsNeedingRestore.isEmpty, !isRestoring else { return }
         isRestoring = true
         let targets = appsNeedingRestore
@@ -422,7 +422,7 @@ public final class ReinjectManager: ObservableObject {
     }
 
     /// 单个应用精准恢复
-    public func restoreApp(_ app: App) {
+    func restoreApp(_ app: App) {
         guard let savedState = loadState(for: app.bid) else { return }
 
         guard let injector = try? InjectorV3(app.url) else { return }
