@@ -12,8 +12,8 @@ enum Constants {
         var values = [
             "FeedbackMailTo": "mailto:82flex@gmail.com",
             "InviteLinkDiscord": "https://discord.gg/P2Hn82zS",
-            "GitHubReleasePage": "https://github.com/Lessica/TrollFools/releases",
-            "GitHubReleaseEndpointForUpgradeCheck": "https://api.github.com/repos/Lessica/TrollFools/releases",
+            "GitHubReleasePage": "https://github.com/liushQAQ/TrollFools/releases",
+            "GitHubReleaseEndpointForUpgradeCheck": "https://api.github.com/repos/liushQAQ/TrollFools/releases",
         ]
         return values
     }()

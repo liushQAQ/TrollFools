@@ -315,3 +315,12 @@
 
 /* No comment provided by engineer. */
 "You’ve selected at least one Debian Package “%@”. We’re here to remind you that it will not work as it was in a jailbroken environment. Please make sure you know what you’re doing." = "You’ve selected at least one Debian Package “%@”. We’re here to remind you that it will not work as it was in a jailbroken environment. Please make sure you know what you’re doing.";
+
+/* Reinject Enhanced */
+"Detected %d updated app(s)" = "Detected %d updated app(s)";
+"Plugins were overwritten by App Store. Tap to restore previous active state." = "Plugins were overwritten by App Store. Tap to restore previous active state.";
+"Restore All" = "Restore All";
+"Auto Restore on Launch" = "Auto Restore on Launch";
+"Automatically restore previous enabled plugins when App Store updates are detected." = "Automatically restore previous enabled plugins when App Store updates are detected.";
+"Restoring %d/%d: %@" = "Restoring %1$d/%2$d: %3$@";
+"Restore Completed" = "Restore Completed";

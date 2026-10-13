@@ -15,6 +15,7 @@ typealias Scope = AppListModel.Scope
 struct AppListView: View {
     let isPad: Bool = UIDevice.current.userInterfaceIdiom == .pad
 
+    @ObservedObject var reinjectManager = ReinjectManager.shared
     @StateObject var searchViewModel = AppListSearchModel()
     @EnvironmentObject var appList: AppListModel
     @Environment(\.verticalSizeClass) var verticalSizeClass
@@ -290,12 +291,17 @@ struct AppListView: View {
 
     var topSection: some View {
         Section {
+            if !reinjectManager.appsNeedingRestore.isEmpty {
+                restoreBannerView
+                    .transition(.opacity)
+            }
+
             if AppListModel.hasTrollStore && appList.isRebuildNeeded {
                 rebuildButton
                     .transition(.opacity)
             }
         } header: {
-            if AppListModel.hasTrollStore && appList.isRebuildNeeded {
+            if !reinjectManager.appsNeedingRestore.isEmpty || (AppListModel.hasTrollStore && appList.isRebuildNeeded) {
                 Text("")
             }
         } footer: {
@@ -318,6 +324,52 @@ struct AppListView: View {
             }
         }
         .id("TopSection")
+    }
+
+    var restoreBannerView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(String(format: NSLocalizedString("Detected %d updated app(s)", comment: ""), reinjectManager.appsNeedingRestore.count))
+                        .font(.headline)
+                        .foregroundColor(.primary)
+
+                    Text(NSLocalizedString("Plugins were overwritten by App Store. Tap to restore previous active state.", comment: ""))
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                if reinjectManager.isRestoring {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle())
+                } else {
+                    Button {
+                        reinjectManager.restoreAll {
+                            appList.reload()
+                        }
+                    } label: {
+                        Text(NSLocalizedString("Restore All", comment: ""))
+                            .font(.footnote)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            if !reinjectManager.statusMessage.isEmpty && reinjectManager.isRestoring {
+                Text(reinjectManager.statusMessage)
+                    .font(.caption2)
+                    .foregroundColor(.blue)
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     var rebuildButton: some View {

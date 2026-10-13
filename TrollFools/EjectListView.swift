@@ -368,6 +368,7 @@ struct EjectListView: View {
 
             ejectList.app.reload()
             ejectList.reload()
+            ReinjectManager.shared.snapshot(ejectList.app)
         } catch {
             DDLogError("\(error)", ddlog: InjectorV3.main.logger)
 
@@ -416,6 +417,7 @@ struct EjectListView: View {
 
             ejectList.app.reload()
             ejectList.reload()
+            ReinjectManager.shared.snapshot(ejectList.app)
         } catch {
             DDLogError("\(error)", ddlog: InjectorV3.main.logger)
 
@@ -472,6 +474,7 @@ struct EjectListView: View {
                     DispatchQueue.main.async {
                         ejectList.app.reload()
                         ejectList.reload()
+                        ReinjectManager.shared.snapshot(ejectList.app)
 
                         isEnablingAll = false
                         isDisablingAll = false
@@ -546,6 +549,7 @@ struct EjectListView: View {
                     DispatchQueue.main.async {
                         ejectList.app.reload()
                         ejectList.reload()
+                        ReinjectManager.shared.snapshot(ejectList.app)
 
                         isEnablingAll = false
                         isDisablingAll = false

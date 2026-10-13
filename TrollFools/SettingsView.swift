@@ -22,6 +22,7 @@ struct SettingsView: View {
     @AppStorage var preferMainExecutable: Bool
     @AppStorage var useFrameworkEnumerationFallback: Bool
     @AppStorage var injectStrategy: InjectorV3.Strategy
+    @AppStorage("AutoRestoreInjectedOnLaunch") var autoRestoreOnLaunch: Bool = false
 
     @StateObject var viewControllerHost = ViewControllerHost()
 
@@ -54,6 +55,12 @@ struct SettingsView: View {
                     Toggle(NSLocalizedString("Use Weak Reference", comment: ""), isOn: $useWeakReference)
                 } footer: {
                     paddedHeaderFooterText(NSLocalizedString("Controls whether the app crashes when the plug-in cannot be found. Keeping this on can reduce unexpected crashes in some scenarios, but the plug-in will not work in those cases.", comment: ""))
+                }
+
+                Section {
+                    Toggle(NSLocalizedString("Auto Restore on Launch", comment: ""), isOn: $autoRestoreOnLaunch)
+                } footer: {
+                    paddedHeaderFooterText(NSLocalizedString("Automatically restore previous enabled plugins when App Store updates are detected.", comment: ""))
                 }
             }
             .navigationTitle(NSLocalizedString("Advanced Settings", comment: ""))

@@ -110,6 +110,7 @@ struct InjectView: View {
                 DispatchQueue.main.async {
                     injectResult = result
                     app.reload()
+                    ReinjectManager.shared.snapshot(app)
                     viewControllerHost.viewController?.navigationController?
                         .view.isUserInteractionEnabled = true
                 }

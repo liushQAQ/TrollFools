@@ -315,3 +315,12 @@
 
 /* No comment provided by engineer. */
 "You’ve selected at least one Debian Package “%@”. We’re here to remind you that it will not work as it was in a jailbroken environment. Please make sure you know what you’re doing." = "你至少选择了一个 Debian 软件包 “%@”。请留意，它通常不会像在越狱环境当中那样工作，甚至完全不起作用。请确保你知道自己在做些什么。";
+
+/* Reinject Enhanced */
+"Detected %d updated app(s)" = "检测到 %d 个应用已更新";
+"Plugins were overwritten by App Store. Tap to restore previous active state." = "插件已被 App Store 更新覆盖。可按原状态一键恢复。";
+"Restore All" = "一键恢复";
+"Auto Restore on Launch" = "启动时自动恢复注入";
+"Automatically restore previous enabled plugins when App Store updates are detected." = "检测到 App Store 覆盖更新后，自动按上次记录的开启/停用状态恢复注入插件。";
+"Restoring %d/%d: %@" = "正在恢复 %1$d/%2$d：%3$@";
+"Restore Completed" = "恢复完成";

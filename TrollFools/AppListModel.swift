@@ -113,6 +113,7 @@ final class AppListModel: ObservableObject {
         allApplications.forEach { $0.appList = self }
         _allApplications = allApplications
         performFilter()
+        ReinjectManager.shared.checkApps(appList: allApplications)
     }
 
     func performFilter() {
@@ -263,3 +264,187 @@ extension AppListModel {
         return groupedApps
     }
 }
+
+// MARK: - Reinject Manager (State-Preserving Auto-Restore)
+
+public struct SavedPluginState: Codable, Equatable {
+    public let fileName: String
+    public var isEnabled: Bool
+
+    public init(fileName: String, isEnabled: Bool) {
+        self.fileName = fileName
+        self.isEnabled = isEnabled
+    }
+}
+
+public struct SavedAppState: Codable {
+    public let bid: String
+    public var appVersion: String
+    public var plugins: [SavedPluginState]
+    public var lastUpdated: Date
+
+    public init(bid: String, appVersion: String, plugins: [SavedPluginState], lastUpdated: Date = Date()) {
+        self.bid = bid
+        self.appVersion = appVersion
+        self.plugins = plugins
+        self.lastUpdated = lastUpdated
+    }
+}
+
+public final class ReinjectManager: ObservableObject {
+    public static let shared = ReinjectManager()
+
+    public static let registryDirectoryURL: URL = {
+        let url = URL(fileURLWithPath: "/var/mobile/Library/TrollFools/StateRegistry", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }()
+
+    @Published public var appsNeedingRestore: [App] = []
+    @Published public var isRestoring: Bool = false
+    @Published public var statusMessage: String = ""
+
+    private let fileManager = FileManager.default
+
+    private init() {}
+
+    private func registryFileURL(for bid: String) -> URL {
+        Self.registryDirectoryURL.appendingPathComponent("\(bid).json")
+    }
+
+    public func loadState(for bid: String) -> SavedAppState? {
+        let url = registryFileURL(for: bid)
+        guard fileManager.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              let state = try? JSONDecoder().decode(SavedAppState.self, data: data) else {
+            return nil
+        }
+        return state
+    }
+
+    /// 拍摄快照：在任何注入/开关/移除操作后调用，记录哪些插件开启，哪些插件关闭
+    public func snapshot(_ app: App) {
+        let bid = app.bid
+        let appVersion = app.version ?? ""
+
+        let activeURLs = InjectorV3.main.injectedAssetURLsInBundle(app.url)
+        let activeNames = Set(activeURLs.map { $0.lastPathComponent })
+
+        let persistedURLs = InjectorV3.main.persistedAssetURLs(bid: bid)
+        let disabledNames = Set(persistedURLs.map { $0.lastPathComponent }).subtracting(activeNames)
+
+        var pluginStates: [SavedPluginState] = []
+        for name in activeNames.sorted() {
+            pluginStates.append(SavedPluginState(fileName: name, isEnabled: true))
+        }
+        for name in disabledNames.sorted() {
+            pluginStates.append(SavedPluginState(fileName: name, isEnabled: false))
+        }
+
+        let fileURL = registryFileURL(for: bid)
+        if pluginStates.isEmpty {
+            try? fileManager.removeItem(at: fileURL)
+            return
+        }
+
+        let state = SavedAppState(
+            bid: bid,
+            appVersion: appVersion,
+            plugins: pluginStates,
+            lastUpdated: Date()
+        )
+        if let data = try? JSONEncoder().encode(state) {
+            try? data.write(to: fileURL, options: .atomic)
+        }
+    }
+
+    /// 检测是否有被 App Store 覆盖导致插件丢失的 App
+    public func checkApps(appList: [App]) {
+        let isDetectionEnabled = UserDefaults.standard.object(forKey: "EnableAppUpdateDetection") as? Bool ?? true
+        guard isDetectionEnabled else {
+            DispatchQueue.main.async { self.appsNeedingRestore = [] }
+            return
+        }
+
+        var needingRestore: [App] = []
+
+        for app in appList {
+            guard let savedState = loadState(for: app.bid) else { continue }
+
+            let expectedActiveNames = Set(savedState.plugins.filter { $0.isEnabled }.map { $0.fileName })
+            if expectedActiveNames.isEmpty { continue }
+
+            let currentActiveURLs = InjectorV3.main.injectedAssetURLsInBundle(app.url)
+            let currentActiveNames = Set(currentActiveURLs.map { $0.lastPathComponent })
+
+            let missingExpected = !expectedActiveNames.isSubset(of: currentActiveNames)
+            let versionChanged = (app.version ?? "") != savedState.appVersion && !savedState.appVersion.isEmpty
+
+            if missingExpected || versionChanged {
+                let persistedURLs = InjectorV3.main.persistedAssetURLs(bid: app.bid)
+                let persistedNames = Set(persistedURLs.map { $0.lastPathComponent })
+                if !expectedActiveNames.intersection(persistedNames).isEmpty {
+                    needingRestore.append(app)
+                }
+            }
+        }
+
+        DispatchQueue.main.async {
+            self.appsNeedingRestore = needingRestore
+            let autoRestore = UserDefaults.standard.bool(forKey: "AutoRestoreInjectedOnLaunch")
+            if autoRestore && !needingRestore.isEmpty && !self.isRestoring {
+                self.restoreAll()
+            }
+        }
+    }
+
+    /// 一键恢复所有受影响的应用（严格保持开启/关闭状态）
+    public func restoreAll(completion: (() -> Void)? = nil) {
+        guard !appsNeedingRestore.isEmpty, !isRestoring else { return }
+        isRestoring = true
+        let targets = appsNeedingRestore
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            for (index, app) in targets.enumerated() {
+                DispatchQueue.main.async {
+                    self.statusMessage = String(format: NSLocalizedString("Restoring %d/%d: %@", comment: ""), index + 1, targets.count, app.name)
+                }
+                self.restoreApp(app)
+            }
+
+            DispatchQueue.main.async {
+                self.isRestoring = false
+                self.statusMessage = NSLocalizedString("Restore Completed", comment: "")
+                self.appsNeedingRestore = []
+                completion?()
+            }
+        }
+    }
+
+    /// 单个应用精准恢复
+    public func restoreApp(_ app: App) {
+        guard let savedState = loadState(for: app.bid) else { return }
+
+        guard let injector = try? InjectorV3(app.url) else { return }
+        if injector.appID.isEmpty { injector.appID = app.bid }
+        if injector.teamID.isEmpty { injector.teamID = app.teamID }
+
+        // 仅挑选之前为【开启】状态的插件
+        let enabledNames = Set(savedState.plugins.filter { $0.isEnabled }.map { $0.fileName })
+        let persistedURLs = injector.persistedAssetURLs(bid: app.bid)
+        let urlsToInject = persistedURLs.filter { enabledNames.contains($0.lastPathComponent) }
+
+        // 注入到新二进制
+        if !urlsToInject.isEmpty {
+            try? injector.inject(urlsToInject, shouldPersist: false)
+        }
+
+        // 之前为【关闭】状态的插件绝不注入，保持静默！
+
+        DispatchQueue.main.async {
+            app.reload()
+            self.snapshot(app)
+        }
+    }
+}
+
