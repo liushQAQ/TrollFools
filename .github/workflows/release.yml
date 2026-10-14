@@ -2,10 +2,11 @@ name: Build & Release
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - release
+  # 关闭自动 push 触发，彻底杜绝短时间内并发高频挤占 macOS 免费算力导致账号风控
+  # push:
+  #   branches:
+  #     - main
+  #     - release
 
 permissions:
   contents: write

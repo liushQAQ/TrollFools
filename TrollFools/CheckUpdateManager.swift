@@ -118,17 +118,190 @@ final class CheckUpdateManager {
             return
         }
 
-        let installURLString = Constants.trollStoreInstallURLScheme + upstreamProductURLString
-        let installURL = URL(string: installURLString)
+        let tagName = lastCheckUpdateResult?.tagName ?? "最新版"
+        let filename = "TrollFools_\(tagName).tipa"
 
-        if let installURL,
-           UIApplication.shared.canOpenURL(installURL),
-           checkTrollStoreAvailability()
-        {
-            UIApplication.shared.open(installURL)
-        } else {
+        guard let topVC = Self.topViewController else {
+            // 兜底直接打开
             UIApplication.shared.open(upstreamProductURL)
+            return
         }
+
+        let alert = UIAlertController(
+            title: "🎉 发现新版本 v\(tagName)",
+            message: "已自动匹配国内免代理极速下载通道，推荐使用 App 内下载后自动调起巨魔安装（彻底避免 301 报错）。",
+            preferredStyle: .alert
+        )
+
+        alert.addAction(UIAlertAction(title: "🚀 极速下载并用巨魔安装 (推荐·零报错)", style: .default) { [weak self] _ in
+            self?.downloadAndInstallTIPA(remoteURLString: upstreamProductURLString, filename: filename)
+        })
+
+        alert.addAction(UIAlertAction(title: "⚡ 巨魔一键直连安装", style: .default) { [weak self] _ in
+            self?.installViaTrollStore(remoteURLString: upstreamProductURLString, fallbackURL: upstreamProductURL, filename: filename)
+        })
+
+        alert.addAction(UIAlertAction(title: "🌐 查看发布页面", style: .default) { _ in
+            UIApplication.shared.open(upstreamProductURL)
+        })
+
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        topVC.present(alert, animated: true)
+    }
+
+    // MARK: - 国内免代理极速下载与巨魔本地安装 (彻底根治 301 报错)
+
+    static func mirrorCandidates(for rawURL: String) -> [String] {
+        guard !rawURL.isEmpty else { return [] }
+        if rawURL.contains("ghfast.top") || rawURL.contains("gh-proxy.com") {
+            return [rawURL]
+        }
+        return [
+            "https://ghfast.top/\(rawURL)",
+            "https://gh-proxy.com/\(rawURL)",
+            rawURL
+        ]
+    }
+
+    private static var topViewController: UIViewController? {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first(where: { $0.isKeyWindow }) ?? windowScene.windows.first,
+              var top = window.rootViewController else {
+            return nil
+        }
+        while let presented = top.presentedViewController {
+            top = presented
+        }
+        return top
+    }
+
+    func installViaTrollStore(remoteURLString: String, fallbackURL: URL, filename: String) {
+        let candidates = Self.mirrorCandidates(for: remoteURLString)
+        let acceleratedURL = candidates.first(where: { $0.contains("ghfast.top") || $0.contains("gh-proxy.com") }) ?? candidates.first ?? remoteURLString
+
+        guard let reqURL = URL(string: acceleratedURL) else {
+            downloadAndInstallTIPA(remoteURLString: remoteURLString, filename: filename)
+            return
+        }
+
+        var req = URLRequest(url: reqURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 4)
+        req.httpMethod = "HEAD"
+
+        URLSession.shared.dataTask(with: req) { [weak self] _, resp, error in
+            let finalTarget: String = {
+                if let http = resp as? HTTPURLResponse, let finalURL = http.url?.absoluteString, !finalURL.isEmpty {
+                    return finalURL
+                }
+                return acceleratedURL
+            }()
+
+            DispatchQueue.main.async {
+                guard let encoded = finalTarget.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+                    self?.downloadAndInstallTIPA(remoteURLString: remoteURLString, filename: filename)
+                    return
+                }
+
+                let schemes = [
+                    "apple-magnifier://install?url=\(encoded)",
+                    "trollstore://install?url=\(encoded)"
+                ]
+
+                var didOpen = false
+                let group = DispatchGroup()
+                for s in schemes {
+                    if let u = URL(string: s) {
+                        group.enter()
+                        UIApplication.shared.open(u, options: [:]) { success in
+                            if success { didOpen = true }
+                            group.leave()
+                        }
+                    }
+                }
+
+                group.notify(queue: .main) {
+                    if !didOpen {
+                        self?.downloadAndInstallTIPA(remoteURLString: remoteURLString, filename: filename)
+                    }
+                }
+            }
+        }.resume()
+    }
+
+    private func downloadAndInstallTIPA(remoteURLString: String, filename: String) {
+        let candidates = Self.mirrorCandidates(for: remoteURLString)
+        guard !candidates.isEmpty else { return }
+        guard let topVC = Self.topViewController else { return }
+
+        let progressAlert = UIAlertController(title: "正在加速下载最新包", message: "正在通过国内镜像下载 \(filename)…\n进度：0%", preferredStyle: .alert)
+        topVC.present(progressAlert, animated: true)
+
+        let destURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+        try? FileManager.default.removeItem(at: destURL)
+
+        func tryDownload(index: Int) {
+            guard index < candidates.count, let url = URL(string: candidates[index]) else {
+                DispatchQueue.main.async {
+                    progressAlert.dismiss(animated: true) {
+                        let alert = UIAlertController(title: "下载失败", message: "所有国内加速镜像节点均无法下载，请稍后重试。", preferredStyle: .alert)
+                        alert.addAction(UIAlertAction(title: "好", style: .default))
+                        Self.topViewController?.present(alert, animated: true)
+                    }
+                }
+                return
+            }
+
+            var observation: NSKeyValueObservation?
+            let task = URLSession.shared.downloadTask(with: url) { [weak self] localURL, resp, error in
+                observation?.invalidate()
+                let statusOK = (resp as? HTTPURLResponse).map { (200...299).contains($0.statusCode) } ?? false
+                if error != nil || !statusOK || localURL == nil {
+                    tryDownload(index: index + 1)
+                    return
+                }
+                guard let localURL = localURL else { return }
+                do {
+                    try? FileManager.default.removeItem(at: destURL)
+                    try FileManager.default.moveItem(at: localURL, to: destURL)
+                    DispatchQueue.main.async {
+                        progressAlert.dismiss(animated: true) {
+                            self?.openDownloadedTIPA(fileURL: destURL)
+                        }
+                    }
+                } catch {
+                    tryDownload(index: index + 1)
+                }
+            }
+
+            observation = task.progress.observe(\.fractionCompleted) { progress, _ in
+                DispatchQueue.main.async {
+                    let pct = Int(progress.fractionCompleted * 100)
+                    progressAlert.message = "正在通过国内镜像 (节点 \(index + 1)) 下载 \(filename)…\n进度：\(pct)%"
+                }
+            }
+            task.resume()
+        }
+
+        tryDownload(index: 0)
+    }
+
+    private func openDownloadedTIPA(fileURL: URL) {
+        if let encoded = fileURL.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           let tsURL = URL(string: "apple-magnifier://install?url=\(encoded)") {
+            UIApplication.shared.open(tsURL, options: [:]) { [weak self] success in
+                if !success {
+                    self?.presentShareForFile(fileURL)
+                }
+            }
+        } else {
+            presentShareForFile(fileURL)
+        }
+    }
+
+    private func presentShareForFile(_ fileURL: URL) {
+        guard let topVC = Self.topViewController else { return }
+        let act = UIActivityViewController(activityItems: [fileURL], applicationActivities: nil)
+        act.popoverPresentationController?.sourceView = topVC.view
+        topVC.present(act, animated: true)
     }
 
     // MARK: - Private Properties
