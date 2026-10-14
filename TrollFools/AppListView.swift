@@ -652,11 +652,7 @@ struct GlobalSettingsView: View {
 
                 Section {
                     Button {
-                        CheckUpdateManager.shared.checkUpdateIfNeeded { latestVersion, _ in
-                            if let latestVersion {
-                                CheckUpdateManager.shared.executeUpgrade()
-                            }
-                        }
+                        CheckUpdateManager.shared.checkUpdate(manual: true)
                     } label: {
                         Text(NSLocalizedString("Check for Updates", comment: ""))
                     }

@@ -1,0 +1,10 @@
+{
+  "version": "4.4.2",
+  "build": 263,
+  "tag_name": "v4.4.2-263",
+  "title": "v4.4.2 Build 263 增强版·修复检查更新按钮交互·多镜像国内直装·彻底根治巨魔301报错",
+  "changelog": "1. 彻底修复检查更新按钮无反应问题：解除 2 小时静默锁，点击立即显示状态弹窗，支持显示「正在检查」、「已是最新版」及错误提示；\n2. 国内免代理极速双通道：支持 latest.json 与 Releases 列表多节点测速容灾，彻底摆脱 api.github.com 国内连通性与速率限制；\n3. 巨魔 301 报错彻底根治：App 内极速下载后直调巨魔本地安装，零网络重定向报错；\n4. 状态快照与智能恢复：保留 App Store 覆盖前的开启/关闭快照，恢复注入丝毫不差。",
+  "tipa_url": "https://github.com/liushQAQ/TrollFools/releases/download/v4.4.2-263/TrollFools_4.4.2-263.tipa",
+  "public_tipa_url": "https://github.com/liushQAQ/TrollFools/releases/download/v4.4.2-263/TrollFools_4.4.2-263.tipa",
+  "release_url": "https://github.com/liushQAQ/TrollFools/releases/tag/v4.4.2-263"
+}

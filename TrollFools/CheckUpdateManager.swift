@@ -8,11 +8,11 @@
 import Combine
 import DpkgVersion
 import Foundation
+import UIKit
 
 private let TTAAGG = "CheckUpdateManager"
 
 /// 统一叫做 CheckUpdate
-/// 不要用 Upgrade/Updates/CheckForUpdates/UpdateCheck
 final class CheckUpdateManager {
     // MARK: - Singleton
 
@@ -21,10 +21,12 @@ final class CheckUpdateManager {
     // MARK: - Data Models
 
     struct LatestVersion: Codable {
-        let tagName: String // "3.5.4-3287"
+        let tagName: String // "4.4.2-262"
         let tipaAssetURLString: String
-        let versionString: String // "3.5.4"
-        let buildVersionString: String // "3287"
+        let versionString: String // "4.4.2"
+        let buildVersionString: String // "262"
+        let changelog: String?
+        let releaseURLString: String?
     }
 
     // MARK: - Published Properties
@@ -76,6 +78,18 @@ final class CheckUpdateManager {
         return Version.compare(upstreamVersionCompareKey, currentVersionCompareKey) > 0
     }
 
+    // MARK: - 国内免代理极速镜像端点矩阵
+
+    private static let updateEndpoints: [String] = [
+        "https://ghfast.top/https://raw.githubusercontent.com/liushQAQ/TrollFools/main/releases/latest.json",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/liushQAQ/TrollFools/main/releases/latest.json",
+        "https://raw.gitmirror.com/liushQAQ/TrollFools/main/releases/latest.json",
+        "https://raw.githubusercontent.com/liushQAQ/TrollFools/main/releases/latest.json",
+        "https://ghfast.top/https://api.github.com/repos/liushQAQ/TrollFools/releases",
+        "https://gh-proxy.com/https://api.github.com/repos/liushQAQ/TrollFools/releases",
+        "https://api.github.com/repos/liushQAQ/TrollFools/releases"
+    ]
+
     // MARK: - Initialization
 
     private init() {
@@ -91,62 +105,131 @@ final class CheckUpdateManager {
         blockCheckUpdateAlertUntil = Date(timeIntervalSinceNow: Constants.updateManagerAlertDelayDuration)
     }
 
-    /// 如果需要的话检查更新
-    /// - Parameter completion: 完成回调
+    /// 兼容旧版调用
     func checkUpdateIfNeeded(completion: ((LatestVersion?, Error?) -> Void)? = nil) {
-        guard isCheckUpdateNeeded else {
-            print("\(TTAAGG) : Check update is not needed.")
-            if isNewVersionAvailable {
-                completion?(lastCheckUpdateResult, nil)
-            } else {
-                completion?(nil, nil)
+        checkUpdate(manual: false, completion: completion)
+    }
+
+    /// 统一检查更新入口（支持 manual 手动强制触发，带完整 UI 反馈与国内加速）
+    func checkUpdate(manual: Bool = false, completion: ((LatestVersion?, Error?) -> Void)? = nil) {
+        if !manual {
+            guard isCheckUpdateNeeded else {
+                print("\(TTAAGG) : Auto check update skipped (within 2h cooldown).")
+                if isNewVersionAvailable {
+                    completion?(lastCheckUpdateResult, nil)
+                } else {
+                    completion?(nil, nil)
+                }
+                return
             }
-            return
         }
 
         lastCheckUpdateAt = Date()
-        performUpdateCheck(completion: completion)
+
+        var loadingAlert: UIAlertController?
+        if manual, let topVC = Self.topViewController {
+            let alert = UIAlertController(title: "正在检查更新", message: "正在连接国内加速节点检查最新构建…", preferredStyle: .alert)
+            topVC.present(alert, animated: true)
+            loadingAlert = alert
+        }
+
+        performMultiMirrorUpdateCheck { [weak self] latestVersion, error in
+            DispatchQueue.main.async {
+                let finishHandler = {
+                    guard let self else { return }
+                    if let latestVersion {
+                        self.lastCheckUpdateResult = latestVersion
+                        let remoteCompareKey = [latestVersion.versionString, latestVersion.buildVersionString].joined(separator: "-")
+                        let hasNewVersion = Version.compare(remoteCompareKey, self.currentVersionCompareKey) > 0
+
+                        if hasNewVersion {
+                            self.presentUpgradePrompt(latestVersion)
+                            completion?(latestVersion, nil)
+                        } else if manual {
+                            self.presentUpToDateAlert(latestVersion)
+                            completion?(nil, nil)
+                        } else {
+                            completion?(nil, nil)
+                        }
+                    } else if manual {
+                        let errMsg = error?.localizedDescription ?? "所有更新节点均未能响应，请检查设备网络连接。"
+                        let alert = UIAlertController(title: "检查更新失败", message: "无法获取仓库最新版本：\(errMsg)", preferredStyle: .alert)
+                        alert.addAction(UIAlertAction(title: "确定", style: .default))
+                        Self.topViewController?.present(alert, animated: true)
+                        completion?(nil, error)
+                    } else {
+                        completion?(nil, error)
+                    }
+                }
+
+                if let alert = loadingAlert {
+                    alert.dismiss(animated: true, completion: finishHandler)
+                } else {
+                    finishHandler()
+                }
+            }
+        }
     }
 
-    /// 执行升级
-    func executeUpgrade() {
-        guard isNewVersionAvailable else { return }
+    /// 弹出已是最新版本的通知
+    private func presentUpToDateAlert(_ info: LatestVersion) {
+        guard let topVC = Self.topViewController else { return }
+        let alert = UIAlertController(
+            title: "✅ 当前已是最新版本",
+            message: "当前版本：v\(Constants.gAppVersion) (Build \(Constants.gAppBuildVersion))\n仓库最新：v\(info.versionString) (Build \(info.buildVersionString))\n\n您使用的已经是最新增强版，无需重复更新。",
+            preferredStyle: .alert
+        )
 
-        guard let upstreamProductURLString = lastCheckUpdateResult?.tipaAssetURLString,
-              let upstreamProductURL = URL(string: upstreamProductURLString)
-        else {
-            return
+        if !info.tipaAssetURLString.isEmpty {
+            alert.addAction(UIAlertAction(title: "🚀 重新下载并用巨魔安装 (免代理加速)", style: .default) { [weak self] _ in
+                let filename = "TrollFools_\(info.tagName).tipa"
+                self?.downloadAndInstallTIPA(remoteURLString: info.tipaAssetURLString, filename: filename)
+            })
         }
 
-        let tagName = lastCheckUpdateResult?.tagName ?? "最新版"
+        alert.addAction(UIAlertAction(title: "好", style: .cancel))
+        topVC.present(alert, animated: true)
+    }
+
+    /// 弹出升级提示对话框
+    func presentUpgradePrompt(_ info: LatestVersion) {
+        guard let topVC = Self.topViewController else { return }
+        let tagName = info.tagName
         let filename = "TrollFools_\(tagName).tipa"
-
-        guard let topVC = Self.topViewController else {
-            // 兜底直接打开
-            UIApplication.shared.open(upstreamProductURL)
-            return
-        }
+        let notes = info.changelog ?? "包含最新的巨魔防 301 报错修复、免代理极速下载通道与稳定性升级。"
 
         let alert = UIAlertController(
             title: "🎉 发现新版本 v\(tagName)",
-            message: "已自动匹配国内免代理极速下载通道，推荐使用 App 内下载后自动调起巨魔安装（彻底避免 301 报错）。",
+            message: "当前版本：v\(Constants.gAppVersion) (Build \(Constants.gAppBuildVersion))\n\n【更新说明】\n\(notes)\n\n推荐点击下方按钮，App 将通过国内免代理通道极速下载并自动调起巨魔安装（彻底避免 301 报错）。",
             preferredStyle: .alert
         )
 
         alert.addAction(UIAlertAction(title: "🚀 极速下载并用巨魔安装 (推荐·零报错)", style: .default) { [weak self] _ in
-            self?.downloadAndInstallTIPA(remoteURLString: upstreamProductURLString, filename: filename)
+            self?.downloadAndInstallTIPA(remoteURLString: info.tipaAssetURLString, filename: filename)
         })
 
         alert.addAction(UIAlertAction(title: "⚡ 巨魔一键直连安装", style: .default) { [weak self] _ in
-            self?.installViaTrollStore(remoteURLString: upstreamProductURLString, fallbackURL: upstreamProductURL, filename: filename)
+            let fallbackURL = URL(string: info.releaseURLString ?? info.tipaAssetURLString) ?? URL(string: "https://github.com/liushQAQ/TrollFools/releases")!
+            self?.installViaTrollStore(remoteURLString: info.tipaAssetURLString, fallbackURL: fallbackURL, filename: filename)
         })
 
-        alert.addAction(UIAlertAction(title: "🌐 查看发布页面", style: .default) { _ in
-            UIApplication.shared.open(upstreamProductURL)
-        })
+        if let rel = info.releaseURLString, let relURL = URL(string: rel) {
+            alert.addAction(UIAlertAction(title: "🌐 打开仓库页面", style: .default) { _ in
+                UIApplication.shared.open(relURL)
+            })
+        }
 
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "稍后提醒", style: .cancel))
         topVC.present(alert, animated: true)
+    }
+
+    /// 执行升级（公共调用）
+    func executeUpgrade() {
+        if let result = lastCheckUpdateResult {
+            presentUpgradePrompt(result)
+        } else {
+            checkUpdate(manual: true)
+        }
     }
 
     // MARK: - 国内免代理极速下载与巨魔本地安装 (彻底根治 301 报错)
@@ -306,16 +389,14 @@ final class CheckUpdateManager {
 
     // MARK: - Private Properties
 
-    /// 是否需要检查更新
+    /// 是否需要自动检查更新
     private var isCheckUpdateNeeded: Bool {
         let updateCheckIntervalSinceNow = Date().timeIntervalSince(lastCheckUpdateAt)
 
-        // 允许检查：自上次检查更新以来已经过去了 2 小时
         if abs(updateCheckIntervalSinceNow) > Constants.updateManagerCheckInterval {
             return true
         }
 
-        // 允许检查：或自上次检查更新以来已经过去了 90 秒，但上次检查失败
         if abs(updateCheckIntervalSinceNow) > Constants.updateManagerRetryInterval, lastCheckUpdateResult == nil {
             return true
         }
@@ -333,155 +414,175 @@ final class CheckUpdateManager {
 
     /// 当前版本比较键
     private var currentVersionCompareKey: String {
-        // eg: "1.0-1"
         [Constants.gAppVersion, Constants.gAppBuildVersion].joined(separator: "-")
     }
 
-    // MARK: - Private Methods
+    // MARK: - 多镜像并发加速探测更新
 
-    /// 执行更新检查
-    /// - Parameter completion: 完成回调
-    private func performUpdateCheck(completion: ((LatestVersion?, Error?) -> Void)?) {
-        let request = URLRequest(
-            url: Constants.gUpdateCheckEndpoint,
-            cachePolicy: .reloadIgnoringLocalAndRemoteCacheData
-        )
+    private func performMultiMirrorUpdateCheck(completion: @escaping (LatestVersion?, Error?) -> Void) {
+        let endpoints = Self.updateEndpoints
+        let lock = NSLock()
+        var bestVersion: LatestVersion?
+        var completedCount = 0
+        var hasFinished = false
+        var lastError: Error?
+        let total = endpoints.count
+        let ts = Int(Date().timeIntervalSince1970)
 
-        URLSession.shared.dataTask(with: request) { [weak self] jsonData, _, error in
-            self?.handleUpdateCheckResponse(jsonData: jsonData, error: error, completion: completion)
-        }.resume()
-    }
-
-    /// 处理更新检查响应
-    /// - Parameters:
-    ///   - jsonData: 响应数据
-    ///   - error: 错误
-    ///   - completion: 完成回调
-    private func handleUpdateCheckResponse(jsonData: Data?, error: Error?, completion: ((LatestVersion?, Error?) -> Void)?) {
-        if let error {
-            print("\(TTAAGG) : Check update failed: \(error)")
-            completion?(nil, error)
-            return
-        }
-
-        guard let jsonData else {
-            print("\(TTAAGG) : Check update failed: No response data.")
-            completion?(nil, error)
-            return
-        }
-
-        guard let versionList = try? JSONSerialization.jsonObject(with: jsonData) as? [[String: AnyHashable]] else {
-            print("\(TTAAGG) : Check update failed: Invalid response data.")
-            completion?(nil, error)
-            return
-        }
-
-        if let latestVersion = parseLatestVersion(from: versionList) {
-            lastCheckUpdateResult = latestVersion
-            guard Version.compare(latestVersion.tagName, currentVersionCompareKey) > 0 else {
-                print("\(TTAAGG) : No new version available. Current version is up to date.")
-                completion?(nil, nil)
+        func finishWithResult(_ result: LatestVersion?) {
+            lock.lock()
+            if hasFinished {
+                lock.unlock()
                 return
             }
-            completion?(latestVersion, nil)
-        } else {
-            print("\(TTAAGG) : Check update failed: No available version.")
-            completion?(nil, nil)
+            hasFinished = true
+            lock.unlock()
+            completion(result, lastError)
+        }
+
+        for endpoint in endpoints {
+            let sep = endpoint.contains("?") ? "&" : "?"
+            guard let url = URL(string: "\(endpoint)\(sep)_t=\(ts)") else {
+                lock.lock()
+                completedCount += 1
+                if completedCount >= total && !hasFinished {
+                    lock.unlock()
+                    finishWithResult(bestVersion)
+                } else {
+                    lock.unlock()
+                }
+                continue
+            }
+
+            var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 5)
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+
+            URLSession.shared.dataTask(with: request) { data, resp, error in
+                var parsed: LatestVersion?
+                if error == nil,
+                   let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                   let data = data {
+                    parsed = Self.parseUpdateData(data)
+                }
+
+                lock.lock()
+                completedCount += 1
+                if let err = error { lastError = err }
+
+                if let found = parsed {
+                    let foundKey = [found.versionString, found.buildVersionString].joined(separator: "-")
+                    let bestKey = bestVersion.map { [$0.versionString, $0.buildVersionString].joined(separator: "-") } ?? "0.0.0-0"
+                    if Version.compare(foundKey, bestKey) > 0 {
+                        bestVersion = found
+                    }
+
+                    // 如果检测到高于当前版本的最新版本，立即响应返回
+                    let currentKey = [Constants.gAppVersion, Constants.gAppBuildVersion].joined(separator: "-")
+                    if Version.compare(foundKey, currentKey) > 0 {
+                        lock.unlock()
+                        finishWithResult(found)
+                        return
+                    }
+                }
+
+                if completedCount >= total {
+                    lock.unlock()
+                    finishWithResult(bestVersion)
+                } else {
+                    lock.unlock()
+                }
+            }.resume()
         }
     }
 
-    /// 解析最新版本信息
-    /// - Parameter versionList: 版本列表
-    /// - Returns: 最新版本信息
-    private func parseLatestVersion(from versionList: [[String: AnyHashable]]) -> LatestVersion? {
-        var latestTagName = "0"
-        var latestPackageURLString: String?
-
-        for versionDict in versionList {
-            // 跳过预发布版本
-            if let prerelease = versionDict["prerelease"] as? Bool, prerelease {
-                continue
+    /// 支持解析最新 release.json 单字典或 GitHub Releases 列表数组
+    private static func parseUpdateData(_ data: Data) -> LatestVersion? {
+        if let jsonDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            // latest.json 格式
+            var tag = jsonDict["tag_name"] as? String ?? jsonDict["version"] as? String ?? ""
+            if tag.hasPrefix("v") { tag.removeFirst() }
+            let tipaURL = jsonDict["tipa_url"] as? String ?? jsonDict["public_tipa_url"] as? String ?? ""
+            let ver = jsonDict["version"] as? String ?? "4.4.2"
+            let build = jsonDict["build"].map { "\($0)" } ?? "262"
+            let notes = jsonDict["changelog"] as? String ?? jsonDict["title"] as? String
+            let relURL = jsonDict["release_url"] as? String
+            if !tipaURL.isEmpty {
+                return LatestVersion(
+                    tagName: tag.isEmpty ? "\(ver)-\(build)" : tag,
+                    tipaAssetURLString: tipaURL,
+                    versionString: ver,
+                    buildVersionString: build,
+                    changelog: notes,
+                    releaseURLString: relURL
+                )
             }
-
-            guard var tagName = versionDict["tag_name"] as? String else {
-                continue
-            }
-
-            // 移除版本号前缀 "v"
-            if tagName.hasPrefix("v") {
-                tagName.removeFirst()
-            }
-
-            // 只处理更新的版本
-            guard Version.compare(tagName, latestTagName) > 0 else {
-                continue
-            }
-
-            // 查找 .tipa 文件
-            guard let packageURLString = findTipaAssetURL(in: versionDict) else {
-                continue
-            }
-
-            latestTagName = tagName
-            latestPackageURLString = packageURLString
         }
 
-        guard let latestPackageURLString else {
-            return nil
-        }
+        if let versionList = try? JSONSerialization.jsonObject(with: data) as? [[String: AnyHashable]] {
+            // GitHub API Releases 数组格式
+            var latestTagName = "0"
+            var latestPackageURLString: String?
+            var latestNotes: String?
+            var latestRelURL: String?
 
-        return createLatestVersion(tagName: latestTagName, packageURLString: latestPackageURLString)
-    }
+            for versionDict in versionList {
+                if let prerelease = versionDict["prerelease"] as? Bool, prerelease {
+                    continue
+                }
 
-    /// 在版本字典中查找 .tipa 文件的下载链接
-    /// - Parameter versionDict: 版本字典
-    /// - Returns: .tipa 文件的下载链接
-    private func findTipaAssetURL(in versionDict: [String: AnyHashable]) -> String? {
-        guard let assetList = versionDict["assets"] as? [[String: Any]] else {
-            return nil
-        }
+                guard var tagName = versionDict["tag_name"] as? String else {
+                    continue
+                }
 
-        for assetDict in assetList {
-            guard let assetName = assetDict["name"] as? String,
-                  assetName.hasSuffix("tipa"),
-                  let downloadURLString = assetDict["browser_download_url"] as? String
-            else {
-                continue
+                if tagName.hasPrefix("v") {
+                    tagName.removeFirst()
+                }
+
+                guard Version.compare(tagName, latestTagName) > 0 else {
+                    continue
+                }
+
+                guard let assetList = versionDict["assets"] as? [[String: Any]] else {
+                    continue
+                }
+
+                var foundTIPA: String?
+                for asset in assetList {
+                    if let name = asset["name"] as? String, name.hasSuffix("tipa"),
+                       let url = asset["browser_download_url"] as? String {
+                        foundTIPA = url
+                        break
+                    }
+                }
+
+                if let pkgURL = foundTIPA {
+                    latestTagName = tagName
+                    latestPackageURLString = pkgURL
+                    latestNotes = versionDict["body"] as? String
+                    latestRelURL = versionDict["html_url"] as? String
+                }
             }
-            return downloadURLString
+
+            if let pkgURL = latestPackageURLString {
+                var components = latestTagName.components(separatedBy: "-")
+                if components.count == 1 { components.append("1") }
+                let verStr = components.first ?? "4.4.2"
+                let bldStr = components.last ?? "262"
+                return LatestVersion(
+                    tagName: latestTagName,
+                    tipaAssetURLString: pkgURL,
+                    versionString: verStr,
+                    buildVersionString: bldStr,
+                    changelog: latestNotes,
+                    releaseURLString: latestRelURL
+                )
+            }
         }
 
         return nil
     }
 
-    /// 创建最新版本对象
-    /// - Parameters:
-    ///   - tagName: 标签名
-    ///   - packageURLString: 包下载链接
-    /// - Returns: 最新版本对象
-    private func createLatestVersion(tagName: String, packageURLString: String) -> LatestVersion? {
-        var latestTagComponents = tagName.components(separatedBy: "-")
-        if latestTagComponents.count == 1 {
-            latestTagComponents.append("1")
-        }
-
-        guard let latestVersionString = latestTagComponents.first,
-              let latestVersionBuild = latestTagComponents.last
-        else {
-            print("\(TTAAGG) : Check update failed: Invalid version.")
-            return nil
-        }
-
-        return LatestVersion(
-            tagName: tagName,
-            tipaAssetURLString: packageURLString,
-            versionString: latestVersionString,
-            buildVersionString: latestVersionBuild
-        )
-    }
-
     /// 检查 TrollStore 可用性
-    /// - Returns: TrollStore 是否可用
     private func checkTrollStoreAvailability() -> Bool {
         let applicationProxyForIdentifierSelector = NSSelectorFromString("applicationProxyForIdentifier:")
         guard let applicationProxyCls = NSClassFromString("LSApplicationProxy"),
